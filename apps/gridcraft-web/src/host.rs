@@ -58,7 +58,12 @@ impl Bridge {
         if js_sys::Object::is(&parent, &window) {
             return None;
         }
-        let origin = window.location().origin().ok()?;
+        // xrm: the platform frames the editor sandboxed without allow-same-origin, so this
+        // document's origin is opaque ("null") although its URL is on the server, and so is the
+        // parent's. A message to an opaque window must be addressed to "*", and one from it says
+        // "null": the parent is then known only as the window it is, which `listen` checks. A
+        // same-origin frame keeps its own origin on both sides.
+        let origin = if window.origin() == "null" { "*".to_string() } else { window.location().origin().ok()? };
         Some(Self { window, parent, origin, saved: Rc::default(), reported: Rc::default(), inbound: Rc::default() })
     }
 
@@ -126,7 +131,7 @@ impl Bridge {
         let origin = self.origin.clone();
         let inbound = self.inbound.clone();
         let on_message = Closure::<dyn FnMut(web_sys::MessageEvent)>::new(move |event: web_sys::MessageEvent| {
-            if event.origin() != origin || !event.source().is_some_and(|s| js_sys::Object::is(&s, &parent)) {
+            if (origin != "*" && event.origin() != origin) || !event.source().is_some_and(|s| js_sys::Object::is(&s, &parent)) {
                 return;
             }
             let data = event.data();
